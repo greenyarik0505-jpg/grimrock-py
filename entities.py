@@ -1,5 +1,6 @@
 import math
 import pygame
+import random
 from config import *
 
 class Entity:
@@ -20,6 +21,7 @@ class Pickup(Entity):
         # sprite_key совпадает с subtype для текстур
         super().__init__(x, y, subtype, 'pickup')
         self.subtype = subtype  # Храним подтип отдельно от type
+        self.scale_factor = 0.25 # Предметы на полу должны быть маленькими
         
     def collect(self, player, game_log):
         if self.subtype == 'key':
@@ -37,8 +39,37 @@ class Projectile(Entity):
         self.speed = 0.15
         self.damage = damage
         self.radius = 0.2
+        self.scale_factor = 0.35 # Фаерболы среднего размера
         
-    def update(self, game_map, enemies, game_log):
+    def spawn_trail_particle(self, entities_list):
+        # Спавним искру огня позади снаряда
+        import random
+        entities_list.append(Particle(
+            self.x - math.cos(self.angle) * 0.2,
+            self.y - math.sin(self.angle) * 0.2,
+            random.uniform(-0.015, 0.015),
+            random.uniform(-0.015, 0.015),
+            random.randint(150, 300),
+            'particle_fire',
+            scale_factor=random.uniform(0.04, 0.07)
+        ))
+
+    def explode(self, entities_list):
+        # Спавним вспышку из 12 частиц
+        import random
+        for _ in range(12):
+            ang = random.uniform(0, 2 * math.pi)
+            spd = random.uniform(0.01, 0.04)
+            dx = math.cos(ang) * spd
+            dy = math.sin(ang) * spd
+            entities_list.append(Particle(
+                self.x, self.y, dx, dy,
+                random.randint(300, 600),
+                'particle_fire',
+                scale_factor=random.uniform(0.05, 0.09)
+            ))
+
+    def update(self, game_map, enemies, game_log, entities_list):
         if not self.alive:
             return
             
@@ -46,9 +77,13 @@ class Projectile(Entity):
         self.x += math.cos(self.angle) * self.speed
         self.y += math.sin(self.angle) * self.speed
         
+        # Спавн огненного шлейфа
+        self.spawn_trail_particle(entities_list)
+        
         # Проверка столкновения со стенами
         if game_map.is_blocking(int(self.x), int(self.y)):
             self.alive = False
+            self.explode(entities_list)
             return
             
         # Проверка столкновения с врагами
@@ -57,8 +92,40 @@ class Projectile(Entity):
                 dist = math.hypot(enemy.x - self.x, enemy.y - self.y)
                 if dist < 0.4: # Радиус коллизии врага
                     enemy.take_damage(self.damage, game_log)
+                    # Спавн крови скелета (пыль/осколки)
+                    import random
+                    for _ in range(6):
+                        entities_list.append(Particle(
+                            self.x, self.y,
+                            random.uniform(-0.03, 0.03),
+                            random.uniform(-0.03, 0.03),
+                            random.randint(200, 400),
+                            'particle_dust',
+                            scale_factor=random.uniform(0.03, 0.06)
+                        ))
                     self.alive = False
+                    self.explode(entities_list)
                     break
+
+class Particle(Entity):
+    def __init__(self, x, y, dx, dy, life_ms, sprite_key, scale_factor=0.08):
+        super().__init__(x, y, sprite_key, 'particle')
+        self.dx = dx
+        self.dy = dy
+        self.max_life = life_ms
+        self.life = life_ms
+        self.scale_factor = scale_factor
+        self.spawn_time = pygame.time.get_ticks()
+        
+    def update(self, current_time):
+        elapsed = current_time - self.spawn_time
+        self.life = self.max_life - elapsed
+        if self.life <= 0:
+            self.alive = False
+            return
+            
+        self.x += self.dx
+        self.y += self.dy
 
 class Enemy(Entity):
     def __init__(self, x, y, enemy_type='skeleton'):
@@ -142,21 +209,46 @@ class Enemy(Entity):
                     self.sprite_key = f'{self.enemy_type}_1'
                     player.take_damage(self.damage, game_log)
             else:
-                # 4. Движение к игроку с обходом стен
-                if dist > 0:
+                # 4. Движение к игроку с обходом стен и других врагов
+                if dist > 0.7:
+                    # Направление к игроку
                     dir_x = (player.x - self.x) / dist
                     dir_y = (player.y - self.y) / dist
                     
-                    # Пытаемся двигаться по X
-                    new_x = self.x + dir_x * self.speed
-                    # Коллизия по X (проверяем границы с небольшим запасом-радиусом)
-                    radius = 0.25
-                    check_x = new_x + (radius if dir_x > 0 else -radius)
-                    if not game_map.is_blocking(int(check_x), int(self.y)):
-                        self.x = new_x
-                        
-                    # Пытаемся двигаться по Y
-                    new_y = self.y + dir_y * self.speed
-                    check_y = new_y + (radius if dir_y > 0 else -radius)
-                    if not game_map.is_blocking(int(self.x), int(check_y)):
-                        self.y = new_y
+                    # Разведение скелетов (Separation)
+                    sep_x = 0
+                    sep_y = 0
+                    for other in entities_list:
+                        if other != self and other.type == 'enemy' and other.alive:
+                            other_dist = math.hypot(other.x - self.x, other.y - self.y)
+                            if other_dist < 0.6:
+                                # Сила отталкивания обратно пропорциональна расстоянию
+                                if other_dist > 0.01:
+                                    sep_x += (self.x - other.x) / other_dist * 0.12
+                                    sep_y += (self.y - other.y) / other_dist * 0.12
+                                else:
+                                    sep_x += random.uniform(-0.08, 0.08)
+                                    sep_y += random.uniform(-0.08, 0.08)
+                                    
+                    dir_x += sep_x
+                    dir_y += sep_y
+                    
+                    # Нормализуем вектор направления движения
+                    move_len = math.hypot(dir_x, dir_y)
+                    if move_len > 0:
+                        dir_x /= move_len
+                        dir_y /= move_len
+                    
+                        # Пытаемся двигаться по X
+                        new_x = self.x + dir_x * self.speed
+                        # Коллизия по X (проверяем границы с небольшим запасом-радиусом)
+                        radius = 0.25
+                        check_x = new_x + (radius if dir_x > 0 else -radius)
+                        if not game_map.is_blocking(int(check_x), int(self.y)):
+                            self.x = new_x
+                            
+                        # Пытаемся двигаться по Y
+                        new_y = self.y + dir_y * self.speed
+                        check_y = new_y + (radius if dir_y > 0 else -radius)
+                        if not game_map.is_blocking(int(self.x), int(check_y)):
+                            self.y = new_y

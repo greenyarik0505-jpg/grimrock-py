@@ -64,6 +64,13 @@ class GameMap:
         self.grid = [list(row) for row in level_data['map']]
         self.rows = len(self.grid)
         self.cols = len(self.grid[0]) if self.rows > 0 else 0
+        
+        # Очищаем символы разметки спавнов, заменяя их на пустой пол '.'
+        for y in range(self.rows):
+            for x in range(self.cols):
+                if self.grid[y][x] in ('s', 'p', 'k'):
+                    self.grid[y][x] = '.'
+                    
         self.start_pos = level_data['start_pos']
         self.start_angle = level_data['start_angle']
         self.initial_entities = level_data['entities']

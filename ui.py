@@ -40,6 +40,8 @@ def draw_hud(screen, player, game_map, game_log, textures, show_full_map):
     pygame.draw.rect(screen, (50, 0, 0), (hp_x, hp_y, bar_width, bar_height)) # Подложка
     hp_fill_w = int(bar_width * max(0, player.health) / player.max_health)
     pygame.draw.rect(screen, RED, (hp_x, hp_y, hp_fill_w, bar_height)) # Заливка
+    if hp_fill_w > 0:
+        pygame.draw.rect(screen, (255, 100, 100), (hp_x, hp_y, hp_fill_w, 4)) # 3D Блик сверху
     pygame.draw.rect(screen, HUD_BORDER, (hp_x, hp_y, bar_width, bar_height), 2) # Рамка
     
     hp_text = font.render(f"HP: {player.health}/{player.max_health}", True, WHITE)
@@ -50,6 +52,8 @@ def draw_hud(screen, player, game_map, game_log, textures, show_full_map):
     pygame.draw.rect(screen, (0, 0, 50), (mp_x, mp_y, bar_width, bar_height))
     mp_fill_w = int(bar_width * max(0, player.mana) / player.max_mana)
     pygame.draw.rect(screen, BLUE, (mp_x, mp_y, mp_fill_w, bar_height))
+    if mp_fill_w > 0:
+        pygame.draw.rect(screen, (100, 200, 255), (mp_x, mp_y, mp_fill_w, 4)) # 3D Блик сверху
     pygame.draw.rect(screen, HUD_BORDER, (mp_x, mp_y, bar_width, bar_height), 2)
     
     mp_text = font.render(f"MP: {player.mana}/{player.max_mana}", True, WHITE)
@@ -130,6 +134,14 @@ def draw_hud(screen, player, game_map, game_log, textures, show_full_map):
     dir_x = player_marker_x + math.cos(player.angle) * 12
     dir_y = player_marker_y + math.sin(player.angle) * 12
     pygame.draw.line(screen, YELLOW, (player_marker_x, player_marker_y), (dir_x, dir_y), 2)
+    
+    # Тонкие направляющие линии конуса обзора (FOV)
+    left_x = player_marker_x + math.cos(player.angle - HALF_FOV) * 10
+    left_y = player_marker_y + math.sin(player.angle - HALF_FOV) * 10
+    right_x = player_marker_x + math.cos(player.angle + HALF_FOV) * 10
+    right_y = player_marker_y + math.sin(player.angle + HALF_FOV) * 10
+    pygame.draw.line(screen, (220, 220, 0), (player_marker_x, player_marker_y), (left_x, left_y), 1)
+    pygame.draw.line(screen, (220, 220, 0), (player_marker_x, player_marker_y), (right_x, right_y), 1)
 
 
 def draw_weapon(screen, player, textures):

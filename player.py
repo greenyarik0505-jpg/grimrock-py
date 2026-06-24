@@ -118,7 +118,7 @@ class Player:
             return True
         return False
 
-    def start_move(self, dx, dy, game_map, current_time):
+    def start_move(self, dx, dy, game_map, enemies_list, current_time):
         if self.moving or self.turning:
             return
             
@@ -142,22 +142,22 @@ class Player:
         target_grid_x = int(self.x) + world_dx
         target_grid_y = int(self.y) + world_dy
         
-        # Проверяем коллизии
-        if not game_map.is_blocking(target_grid_x, target_grid_y):
-            self.start_x = self.x
-            self.start_y = self.y
-            self.target_x = target_grid_x + 0.5 # Центр клетки
-            self.target_y = target_grid_y + 0.5
-            self.moving = True
-            self.move_start_time = current_time
-            self.move_direction = (world_dx, world_dy)
-        else:
-            # Дверь закрыта? Попробуем подсказать
-            tile = game_map.get_tile(target_grid_x, target_grid_y)
-            if tile == 'D':
-                pass # Сообщение о двери выведется при взаимодействии на кнопку E
-            elif tile == 'K':
-                pass
+        # Проверяем коллизии со стенами
+        if game_map.is_blocking(target_grid_x, target_grid_y):
+            return
+
+        # Проверяем коллизии с живыми врагами
+        for enemy in enemies_list:
+            if enemy.alive and enemy.type == 'enemy' and int(enemy.x) == target_grid_x and int(enemy.y) == target_grid_y:
+                return # Враг блокирует проход
+                
+        self.start_x = self.x
+        self.start_y = self.y
+        self.target_x = target_grid_x + 0.5 # Центр клетки
+        self.target_y = target_grid_y + 0.5
+        self.moving = True
+        self.move_start_time = current_time
+        self.move_direction = (world_dx, world_dy)
 
     def start_turn(self, direction, current_time):
         if self.moving or self.turning:

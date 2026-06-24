@@ -12,7 +12,7 @@ VIEW_HEIGHT = HEIGHT - HUD_HEIGHT
 # Настройки Raycasting
 FOV = math.pi / 3  # 60 градусов
 HALF_FOV = FOV / 2
-NUM_RAYS = 200  # Количество лучей (баланс между FPS и качеством)
+NUM_RAYS = 400  # Количество лучей (баланс между FPS и качеством)
 SCALE = WIDTH // NUM_RAYS  # Ширина одной вертикальной полосы стены
 MAX_DEPTH = 16  # Максимальное расстояние видимости (в клетках)
 

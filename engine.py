@@ -1,9 +1,11 @@
 import pygame
 import math
+import random
 from config import *
 
 # Глобальный буфер затенения для ускорения работы
 shadow_overlays = {}
+column_cache = {}
 
 def get_shadow_overlay(alpha, width, height):
     """Возвращает или создает черную полупрозрачную поверхность для затенения"""
@@ -17,17 +19,41 @@ def get_shadow_overlay(alpha, width, height):
         shadow_overlays[key] = overlay
     return shadow_overlays[key]
 
+def get_scaled_column(texture, tex_x, scale, height, texture_key):
+    """Кэширует отмасштабированные срезы текстур для повышения FPS"""
+    height = max(1, (height // 4) * 4)
+    key = (texture_key, tex_x, scale, height)
+    if key not in column_cache:
+        if len(column_cache) > 3000:
+            column_cache.clear()
+        try:
+            wall_column = texture.subsurface((tex_x, 0, 1, TILE_SIZE))
+            column_cache[key] = pygame.transform.scale(wall_column, (scale, height))
+        except pygame.error:
+            fallback = pygame.Surface((scale, height))
+            fallback.fill((120, 120, 120))
+            column_cache[key] = fallback
+    return column_cache[key]
+
 def raycast(player, game_map, textures, screen):
     # Инициализируем Z-буфер (хранит скорректированные расстояния — proj_dist)
     z_buffer = [MAX_DEPTH] * NUM_RAYS
     
-    # 1. Отрисовка пола и потолка (градиентные фоны)
-    screen.blit(textures['sky'], (0, 0))
-    screen.blit(textures['floor'], (0, VIEW_HEIGHT // 2))
+    # 1. Отрисовка пола и потолка (градиентные фоны с учетом покачивания головы)
+    # Смещаем отрисовку на bob_y, чтобы не было швов и разрывов на горизонте
+    sky_y = int(player.bob_y) - 15
+    screen.blit(textures['sky'], (0, sky_y))
+    floor_y = VIEW_HEIGHT // 2 + int(player.bob_y) - 15
+    screen.blit(textures['floor'], (0, floor_y))
 
     # Направление взгляда игрока
     ox, oy = player.x, player.y
     player_angle = player.angle
+
+    # Динамический эффект мерцания факела (изменяет дальность освещения)
+    ticks = pygame.time.get_ticks()
+    # Волнообразная и случайная пульсация
+    flicker = 1.0 + math.sin(ticks * 0.015) * 0.03 + random.uniform(-0.01, 0.01)
 
     # 2. Отрисовка стен
     for i in range(NUM_RAYS):
@@ -119,13 +145,8 @@ def raycast(player, game_map, textures, screen):
             # Ограничиваем высоту стены разумным пределом
             render_height = min(VIEW_HEIGHT * 3, wall_height)
             
-            # Извлекаем вертикальный срез текстуры
-            try:
-                wall_column = texture.subsurface((tex_x, 0, 1, TILE_SIZE))
-                scaled_column = pygame.transform.scale(wall_column, (SCALE, render_height))
-            except pygame.error:
-                scaled_column = pygame.Surface((SCALE, render_height))
-                scaled_column.fill(GRAY)
+            # Используем кэш масштабирования для колонок стен
+            scaled_column = get_scaled_column(texture, tex_x, SCALE, render_height, wall_tile)
 
             # Вычисляем верхнюю координату стены с учетом покачивания головы
             wall_top = int(VIEW_HEIGHT / 2 + player.bob_y - render_height / 2)
@@ -133,8 +154,8 @@ def raycast(player, game_map, textures, screen):
             # Рисуем полосу стены
             screen.blit(scaled_column, (i * SCALE, wall_top))
 
-            # Эффект затухания света (тени в глубине лабиринта)
-            depth_shadow = 1.0 / (1.0 + proj_dist * proj_dist * 0.05)
+            # Эффект затухания света (тени в глубине лабиринта + мерцание)
+            depth_shadow = 1.0 / (1.0 + proj_dist * proj_dist * 0.05 * flicker)
             if side == 1:
                 depth_shadow *= 0.8
                 
@@ -184,8 +205,9 @@ def render_sprites(player, entities, textures, z_buffer, screen):
     
     # Отрисовываем каждый спрайт
     for proj_dist, gamma, entity in projected_sprites:
-        # Высота и ширина спрайта на экране
-        sprite_size = int(PROJ_COEFF / proj_dist * 0.7)  # 0.7 — спрайты немного меньше стен
+        # Высота и ширина спрайта на экране с учетом его scale_factor
+        scale_factor = getattr(entity, 'scale_factor', 0.7)
+        sprite_size = int(PROJ_COEFF / proj_dist * scale_factor)
         
         if sprite_size <= 0 or sprite_size > VIEW_HEIGHT * 3:
             continue

@@ -83,7 +83,14 @@ class Game:
         self.game_map = GameMap(level_idx)
         
         start_x, start_y = self.game_map.start_pos
+        
+        # Сохраняем состояние игрока при переходе на следующий уровень
+        old_player = self.player
         self.player = Player(start_x, start_y, self.game_map.start_angle)
+        if old_player is not None:
+            self.player.health = old_player.health
+            self.player.mana = old_player.mana
+            self.player.potions = old_player.potions
         
         self.entities = []
         self.enemies = []
@@ -250,16 +257,16 @@ class Game:
         if not self.player.moving and not self.player.turning:
             moved = False
             if keys[pygame.K_w]:
-                self.player.start_move(1, 0, self.game_map, current_time)
+                self.player.start_move(1, 0, self.game_map, self.enemies, current_time)
                 moved = True
             elif keys[pygame.K_s]:
-                self.player.start_move(-1, 0, self.game_map, current_time)
+                self.player.start_move(-1, 0, self.game_map, self.enemies, current_time)
                 moved = True
             elif keys[pygame.K_q]:
-                self.player.start_move(0, -1, self.game_map, current_time)
+                self.player.start_move(0, -1, self.game_map, self.enemies, current_time)
                 moved = True
             elif keys[pygame.K_e]:
-                self.player.start_move(0, 1, self.game_map, current_time)
+                self.player.start_move(0, 1, self.game_map, self.enemies, current_time)
                 moved = True
             elif keys[pygame.K_a]:
                 self.player.start_turn(-1, current_time)
@@ -273,21 +280,24 @@ class Game:
         # 2. Обновляем игрока
         self.player.update(current_time)
         
-        # 3. Обновляем снаряды и врагов (копия списка, чтобы не ломать итерацию)
+        # 3. Обновляем снаряды, врагов и частицы (копия списка, чтобы не ломать итерацию)
         prev_enemy_alive = {id(e): e.alive for e in self.enemies}
         
         for ent in list(self.entities):
             if not ent.alive:
                 continue
             if ent.type == 'projectile':
-                ent.update(self.game_map, self.enemies, self.game_log)
+                ent.update(self.game_map, self.enemies, self.game_log, self.entities)
             elif ent.type == 'enemy':
                 ent.update(self.player, self.game_map, current_time, self.game_log, self.entities)
+            elif ent.type == 'particle':
+                ent.update(current_time)
         
-        # Проверяем, кто из врагов только что умер — проигрываем звук
+        # Проверяем, кто из врагов только что умер — проигрываем звук и спавним частицы костей
         for e in self.enemies:
             if prev_enemy_alive.get(id(e), True) and not e.alive:
                 self.play_sound('enemy_death')
+                self.spawn_crumble_particles(e.x, e.y)
         
         # Проверяем, получил ли игрок урон
         # (реализуем через отслеживание здоровья)
@@ -320,14 +330,46 @@ class Game:
                     
         self.entities.extend(new_pickups)
         
-        # 7. Удаляем неактивные сущности
+        # 7. Парение фоновых пылинок в воздухе подземелья
+        if random.random() < 0.08:
+            px, py = self.player.x, self.player.y
+            dist = random.uniform(1.0, 4.0)
+            ang = random.uniform(0, 2 * math.pi)
+            part_x = px + math.cos(ang) * dist
+            part_y = py + math.sin(ang) * dist
+            
+            if not self.game_map.is_blocking(int(part_x), int(part_y)):
+                from entities import Particle
+                self.entities.append(Particle(
+                    part_x, part_y,
+                    random.uniform(-0.003, 0.003),
+                    random.uniform(-0.003, 0.003),
+                    random.randint(1000, 3000),
+                    'particle_dust',
+                    scale_factor=random.uniform(0.02, 0.04)
+                ))
+        
+        # 8. Удаляем неактивные сущности
         self.entities = [e for e in self.entities if e.alive]
         self.enemies = [e for e in self.enemies if e.alive]
         
-        # 8. Проверка проигрыша
+        # 9. Проверка проигрыша
         if self.player.health <= 0:
             self.play_sound('hit')
             self.state = 2 # Конец игры
+
+    def spawn_crumble_particles(self, x, y):
+        """Спавнит 15 костяных осколков при гибели скелета"""
+        from entities import Particle
+        for _ in range(15):
+            dx = random.uniform(-0.04, 0.04)
+            dy = random.uniform(-0.04, 0.04)
+            life = random.randint(350, 750)
+            self.entities.append(Particle(
+                x, y, dx, dy, life,
+                'particle_dust',
+                scale_factor=random.uniform(0.04, 0.07)
+            ))
 
     def draw(self):
         if self.state == 0:
